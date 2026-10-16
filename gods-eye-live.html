@@ -1,0 +1,51 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>God's Eye Live</title>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden;color:#7dffd4;font:12px/1.45 ui-monospace,Menlo,Consolas,monospace}
+#g{position:fixed;inset:0}
+.hud{position:fixed;left:12px;right:12px;pointer-events:none;text-shadow:0 0 6px #000}
+#top{top:calc(10px + env(safe-area-inset-top,0px))}
+#bot{bottom:calc(12px + env(safe-area-inset-bottom,0px));display:flex;gap:8px}
+button{pointer-events:auto;flex:1;min-height:44px;border:1px solid #3b7f6b;background:rgba(3,10,16,.75);color:#3b7f6b;font:inherit;font-weight:700;border-radius:8px;touch-action:manipulation}
+button.on{color:#7dffd4;border-color:#7dffd4;box-shadow:0 0 10px rgba(125,255,212,.35)}
+</style></head><body>
+<div id="g"></div>
+<div class="hud" id="top"><b>GOD'S EYE</b> // LIVE<br><span id="st">loading feeds…</span></div>
+<div class="hud" id="bot"><button class="on" id="bF">FLT</button><button class="on" id="bS">SAT</button><button class="on" id="bQ">QUAKE</button><button id="bR">REFRESH</button></div>
+<script src="https://cdn.jsdelivr.net/npm/globe.gl@2.27.2/dist/globe.gl.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/satellite.js@5.0.0/dist/satellite.min.js"></script>
+<script>
+const on={F:1,S:1,Q:1};let fl=[],sats=[],recs=[],qk=[],msg={F:'…',S:'…',Q:'…'};
+const IMG='//unpkg.com/three-globe/example/img/';
+const G=Globe()(document.getElementById('g'))
+ .globeImageUrl(IMG+'earth-blue-marble.jpg').bumpImageUrl(IMG+'earth-topology.png').backgroundImageUrl(IMG+'night-sky.png')
+ .atmosphereColor('#6cf').atmosphereAltitude(.18)
+ .pointLat('lat').pointLng('lng').pointAltitude('alt').pointColor('c').pointRadius('r').pointsMerge(true)
+ .ringLat('lat').ringLng('lng').ringMaxRadius(d=>d.m*1.1).ringPropagationSpeed(2).ringRepeatPeriod(1600)
+ .ringColor(()=>t=>`rgba(255,90,77,${1-t})`);
+G.renderer().setPixelRatio(Math.min(devicePixelRatio,2));
+G.pointOfView({lat:20,lng:10,altitude:2.5});
+const C=G.controls();C.autoRotate=true;C.autoRotateSpeed=.4;C.addEventListener('start',()=>C.autoRotate=false);
+const fit=()=>G.width(innerWidth).height(innerHeight);addEventListener('resize',fit);fit();
+
+function draw(){G.pointsData((on.F?fl:[]).concat(on.S?sats:[]));G.ringsData(on.Q?qk:[]);
+ document.getElementById('st').textContent=`FLT ${msg.F} · SAT ${msg.S} · QUAKE ${msg.Q} · ${new Date().toISOString().slice(11,19)} UTC`}
+
+async function getF(){try{const j=await (await fetch('https://opensky-network.org/api/states/all')).json();
+ let s=j.states.filter(x=>x[5]!=null&&x[6]!=null&&!x[8]);const k=Math.max(1,Math.ceil(s.length/3000));
+ fl=s.filter((_,i)=>i%k==0).map(x=>({lat:x[6],lng:x[5],alt:.004+Math.min(.03,(x[7]||0)/6371000*8),c:'#ffd060',r:.12}));msg.F=fl.length}catch(e){msg.F='busy'}draw()}
+async function getS(){try{const t=await (await fetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=visual&FORMAT=tle')).text();
+ const L=t.trim().split(/\r?\n/);recs=[];for(let i=0;i+2<L.length;i+=3)recs.push({n:L[i].trim(),r:satellite.twoline2satrec(L[i+1],L[i+2])});propS()}catch(e){msg.S='err';draw()}}
+function propS(){const d=new Date(),g=satellite.gstime(d);
+ sats=recs.map(s=>{const pv=satellite.propagate(s.r,d);if(!pv.position)return null;const p=satellite.eciToGeodetic(pv.position,g),iss=/ISS/.test(s.n);
+  return{lat:satellite.degreesLat(p.latitude),lng:satellite.degreesLong(p.longitude),alt:p.height/6371,c:iss?'#40e0ff':'#ffffff',r:iss?.5:.25}}).filter(Boolean);msg.S=sats.length;draw()}
+async function getQ(){try{const j=await (await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson')).json();
+ qk=j.features.filter(f=>f.properties.mag!=null).map(f=>({lng:f.geometry.coordinates[0],lat:f.geometry.coordinates[1],m:Math.max(1,f.properties.mag)}));msg.Q=qk.length}catch(e){msg.Q='err'}draw()}
+
+[['bF','F'],['bS','S'],['bQ','Q']].forEach(([id,k])=>{const b=document.getElementById(id);b.onclick=()=>{on[k]=!on[k];b.classList.toggle('on',!!on[k]);draw()}});
+const all=()=>{getF();getS();getQ()};document.getElementById('bR').onclick=all;all();
+setInterval(()=>{if(recs.length&&on.S)propS()},5000);   // satellites: recomputed locally every 5 s
+setInterval(getF,600000);                                 // flights: every 10 min (OpenSky anonymous limits)
+setInterval(getQ,300000);
+</script></body></html>
